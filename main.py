@@ -4,8 +4,10 @@
 #   m  -> toggle mirror on/off
 #
 # In terminal:
+#   python -m venv venv
 #   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 #   venv\Scripts\activate
+#   pip install opencv-python mediapipe
 
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
@@ -72,7 +74,7 @@ def classify_gesture(lm, last_label=None):
     Notes:
       - "Open Palm" allows slightly bent thumb
       - "Closed Fist" allows slight bends
-      - If ambiguous, prefer last_label over 'Other'
+      - If ambiguous returns 'Other'
     """
     up, folded, angles = finger_states_angle(lm)
     fingers_up = sum(up.values())
@@ -87,15 +89,14 @@ def classify_gesture(lm, last_label=None):
     if up["index"] and not up["middle"] and not up["ring"] and not up["pinky"] and not up["thumb"]:
         return "Point (Index)"
     if not up["index"] and up["middle"] and not up["ring"] and not up["pinky"] and not up["thumb"]:
-        return "Not Nice!" # fun idea to blur middle finger
+        return "WOAH!"
     if up["index"] and up["middle"] and not up["ring"] and not up["pinky"] and not up["thumb"]:
         return "Peace / V"
     if up["thumb"] and not up["index"] and not up["middle"] and not up["ring"] and not up["pinky"]:
         return "Thumbs Up/Side"
     if up["index"] and up["pinky"] and not up["middle"] and not up["ring"]:
-        return "Rock 🤘"
+        return "Rock On!"
     return "Other"
-    # maybe implent pinch for volume control (thumb and finger close => lower, farther apart => higher)
 
 class StablePrinter:
     """
@@ -123,7 +124,7 @@ class StablePrinter:
 
         if top_label == "Other" and self.other_streak < self.allow_other_after:
             top_label = self.current or "Other"
-            votes = self.min_agree  # fake stability to keep current
+            votes = self.min_agree
 
         if votes >= self.min_agree and top_label != self.current:
             self.current = top_label
@@ -146,10 +147,11 @@ def main():
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
-        raise RuntimeError("Could not open camera. Try a different index (1, 2, ...) or check Windows Camera app.")
+        raise RuntimeError("Could not open camera.")
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  1280)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
     smoother = StablePrinter(window=9, min_agree=6, allow_other_after=12)
     mirror = True
