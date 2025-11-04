@@ -17,6 +17,37 @@ from collections import deque, Counter
 import cv2
 import mediapipe as mp
 
+def pinch_strength(lm, prev=None, ema_alpha=0.35):
+    import math
+    def _dist(a, b):
+        return math.hypot(a.x - b.x, a.y - b.y)
+    
+    thumb_tip = lm[4]
+    index_tip = lm[8]
+    ti = _dist(thumb_tip, index_tip)
+
+    # Normalize by palm width
+    palm_w = _dist(lm[5], lm[17]) + 1e-6
+
+    close_d = 0.12 * palm_w
+    far_d = 0.50 * palm_w
+    
+    
+    t = (ti - close_d) / (far_d - close_d)
+    proximity = 1.0 - max(0.0, min(1.0, t)) # 0 = pinch, 1 = no pinch
+
+    raw_0_100 = 100.0 * proximity
+
+    smoothed = raw_0_100 if prev is None else (1 - ema_alpha) * prev + ema_alpha * raw_0_100
+    
+    # Snap values at edges
+    if smoothed < 3:
+        smoothed = 0.0
+    if smoothed > 97:
+        smoothed = 100.0
+    
+    return smoothed
+
 def _angle(a, b, c):
     """
     Returns the angle (degrees) at point b formed by points a-b-c.
@@ -35,6 +66,17 @@ def _angle(a, b, c):
 def _dist(a, b):
     return math.hypot(a.x - b.x, a.y - b.y)
 
+def is_pinch(lm, last_label=None):
+        ti = _dist(lm[4], lm[8])
+        pw = _dist(lm[5], lm[17])
+
+        ENTER, EXIT = 0.14, 0.22
+
+        if last_label == "Pinch":
+            return ti <= EXIT * pw
+        else:
+            return ti <= ENTER * pw
+
 def finger_states_angle(lm):
     """
     Angle-based extension detection for all 5 fingers.
@@ -46,8 +88,8 @@ def finger_states_angle(lm):
       - Uses a 'dead zone' between thresholds to reduce jitter.
       - Angle >= EXTEND_TH => straight/extended; <= FOLD_TH => bent/folded.
     """
-    EXTEND_TH = 160
-    FOLD_TH   = 145
+    EXTEND_TH = 165
+    FOLD_TH   = 140
 
     thumb_ang  = _angle(lm[2], lm[3], lm[4])
     index_ang  = _angle(lm[5],  lm[6],  lm[8])
@@ -77,26 +119,26 @@ def classify_gesture(lm, last_label=None):
       - If ambiguous returns 'Other'
     """
     up, folded, angles = finger_states_angle(lm)
-    fingers_up = sum(up.values())
-    fingers_folded = sum(folded.values())
-    four_fingers_up = up["index"] and up["middle"] and up["ring"] and up["pinky"]
-    four_fingers_folded = folded["index"] and folded["middle"] and folded["ring"] and folded["pinky"]
 
-    if four_fingers_folded and not up["thumb"]:
-        return "Closed Fist"
-    if four_fingers_up and not folded["thumb"]:
-        return "Open Palm"
-    if up["index"] and not up["middle"] and not up["ring"] and not up["pinky"] and not up["thumb"]:
+    # if is_pinch(lm, last_label=last_label):
+    #     if not up["middle"] and not up["ring"] and not up["pinky"]:        
+    #         return "Pinch"
+    if up["thumb"] and folded["index"] and folded["middle"] and folded["ring"] and folded["pinky"]:
+      return "Thumbs Up/Side"
+    if up["index"] and folded["middle"] and folded["ring"] and folded["pinky"] and (not up["thumb"]):
         return "Point (Index)"
-    if not up["index"] and up["middle"] and not up["ring"] and not up["pinky"] and not up["thumb"]:
+    if up["index"] and up["middle"] and folded["ring"] and folded["pinky"] and (not up["thumb"]):
+       return "Peace / V"
+    if up["index"] and up["pinky"] and folded["middle"] and folded["ring"] and (not up["thumb"]):
+       return "Rock On!"
+    if (not up["thumb"]) and folded["index"] and up["middle"] and folded["ring"] and folded["pinky"]:
         return "WOAH!"
-    if up["index"] and up["middle"] and not up["ring"] and not up["pinky"] and not up["thumb"]:
-        return "Peace / V"
-    if up["thumb"] and not up["index"] and not up["middle"] and not up["ring"] and not up["pinky"]:
-        return "Thumbs Up/Side"
-    if up["index"] and up["pinky"] and not up["middle"] and not up["ring"]:
-        return "Rock On!"
+    if up["index"] and up["middle"] and up["ring"] and up["pinky"] and (not folded["thumb"]):
+       return "Open Palm"
+    if folded["index"] and folded["middle"] and folded["ring"] and folded["pinky"] and (not up["thumb"]):
+      return "Closed Fist"
     return "Other"
+
 
 class StablePrinter:
     """
@@ -155,6 +197,7 @@ def main():
 
     smoother = StablePrinter(window=9, min_agree=6, allow_other_after=12)
     mirror = True
+    pinch_val = None
 
     while True:
         success, frame = cap.read()
@@ -170,9 +213,26 @@ def main():
         if res.multi_hand_landmarks:
             for hand_landmarks in res.multi_hand_landmarks:
                 mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+                
+                '''
+                # Displays landmark numbers
+                for i, lm in enumerate(hand_landmarks.landmark):
+                    h, w, _ = frame.shape
+                    cx, cy = int(lm.x * w), int(lm.y * h)
+                    cv2.circle(frame, (cx, cy), 5, (255, 0, 0), -1)
+                    cv2.putText(frame, str(i), (cx + 5, cy - 5),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+                '''
+
                 last = smoother.current
                 label = classify_gesture(hand_landmarks.landmark, last_label=last)
                 smoother.update(label)
+
+                if smoother.current == "Pinch":
+                    val = pinch_strength(hand_landmarks.landmark, prev=pinch_val, ema_alpha=0.35)
+                    pinch_val = val
+                    cv2.putText(frame, f"Pinch: {int(round(val))}", (20,80),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,200,255), 2, cv2.LINE_AA)
         else:
             smoother.update("Other")
 
