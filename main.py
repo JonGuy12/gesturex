@@ -16,37 +16,30 @@ import math
 from collections import deque, Counter
 import cv2
 import mediapipe as mp
+import numpy as np
 
-def pinch_strength(lm, prev=None, ema_alpha=0.35):
-    import math
-    def _dist(a, b):
-        return math.hypot(a.x - b.x, a.y - b.y)
-    
-    thumb_tip = lm[4]
-    index_tip = lm[8]
-    ti = _dist(thumb_tip, index_tip)
+def _lm_np(lm_pt):
+    return np.array([lm_pt.x, lm_pt.y, lm_pt.z], dtype=np.float32)
 
-    # Normalize by palm width
-    palm_w = _dist(lm[5], lm[17]) + 1e-6
+def _unit(v):
+    n = np.linalg.norm(v) + 1e-9
+    return v / n
 
-    close_d = 0.12 * palm_w
-    far_d = 0.50 * palm_w
-    
-    
-    t = (ti - close_d) / (far_d - close_d)
-    proximity = 1.0 - max(0.0, min(1.0, t)) # 0 = pinch, 1 = no pinch
+def hand_plane_axis(lm):
+    wrist = _lm_np(lm[0])
+    index = _lm_np(lm[5])
+    pinky = _lm_np(lm[17])
 
-    raw_0_100 = 100.0 * proximity
+    ex = _unit(index - wrist)
+    ey_raw = pinky - wrist
+    ey = _unit(ey_raw - np.dot(ey_raw, ex) * ex)
+    return wrist, ex, ey
 
-    smoothed = raw_0_100 if prev is None else (1 - ema_alpha) * prev + ema_alpha * raw_0_100
-    
-    # Snap values at edges
-    if smoothed < 3:
-        smoothed = 0.0
-    if smoothed > 97:
-        smoothed = 100.0
-    
-    return smoothed
+def proj_plane_uv(pt, origin, ex, ey):
+    v = _lm_np(pt) - origin
+    u = float(np.dot(v, ex))
+    v2 = float(np.dot(v, ey))
+    return u, v2
 
 def _angle(a, b, c):
     """
@@ -120,9 +113,6 @@ def classify_gesture(lm, last_label=None):
     """
     up, folded, angles = finger_states_angle(lm)
 
-    # if is_pinch(lm, last_label=last_label):
-    #     if not up["middle"] and not up["ring"] and not up["pinky"]:        
-    #         return "Pinch"
     if up["thumb"] and folded["index"] and folded["middle"] and folded["ring"] and folded["pinky"]:
       return "Thumbs Up/Side"
     if up["index"] and folded["middle"] and folded["ring"] and folded["pinky"] and (not up["thumb"]):
@@ -197,7 +187,7 @@ def main():
 
     smoother = StablePrinter(window=9, min_agree=6, allow_other_after=12)
     mirror = True
-    pinch_val = None
+    pinch = False
 
     while True:
         success, frame = cap.read()
@@ -213,7 +203,63 @@ def main():
         if res.multi_hand_landmarks:
             for hand_landmarks in res.multi_hand_landmarks:
                 mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+                if pinch:
+                    origin, ex, ey = hand_plane_axis(hand_landmarks.landmark)
+
+                    u4, v4 = proj_plane_uv(hand_landmarks.landmark[4], origin, ex, ey)
+                    u8, v8 = proj_plane_uv(hand_landmarks.landmark[8], origin, ex, ey)
+                    ti_plane = float(np.hypot(u8 - u4, v8 - v4))
+
+                    ui, vi = proj_plane_uv(hand_landmarks.landmark[5], origin, ex, ey)
+                    u8b, v8b = proj_plane_uv(hand_landmarks.landmark[8], origin, ex, ey)
+                    index_len = float(np.hypot(u8b - ui, v8b - vi))
+
+                    ut2, vt2 = proj_plane_uv(hand_landmarks.landmark[2], origin, ex, ey)
+                    ut4, vt4 = proj_plane_uv(hand_landmarks.landmark[4], origin, ex, ey)
+                    thumb_len = float(np.hypot(ut4 - ut2, vt4 - vt2))
+
+                    baseline = max(1e-6, 0.5 * (index_len + thumb_len))
+                    ratio = ti_plane / baseline
+
+                    CLOSE, FAR = 0.25, 1.50
+                    val = (ratio - CLOSE) / (FAR - CLOSE)
+                    val = 0.0 if val < 0 else 1.0 if val > 1 else val
+                    open_pct = int(round(val * 100))
+
+                    h, w, _ = frame.shape
+                    tt = hand_landmarks.landmark[4]; it = hand_landmarks.landmark[8]
+                    x1, y1 = int(tt.x * w), int(tt.y * h)
+                    x2, y2 = int(it.x * w), int(it.y * h)
+
+                    r = int(255 * val)
+                    g = int(255 * (1 - val))
+                    cv2.line(frame, (x1, y1), (x2, y2), (0, g, r), 4)
+
+                    cv2.putText(frame, f"Open (plane): {open_pct}%", (20, 110),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
                 
+
+                # thumb_tip = hand_landmarks.landmark[4]
+                # index_tip = hand_landmarks.landmark[8]
+
+                # h, w, _ = frame.shape
+                # x1, y1 = int(thumb_tip.x * w), int(thumb_tip.y * h)
+                # x2, y2 = int(index_tip.x * w), int(index_tip.y * h)
+                # distance = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+
+                # min_d, max_d = 20, 350
+                # pinch_value = (distance - min_d) / (max_d - min_d)
+                # pinch_value = max(0, min(1, pinch_value))
+                # pinch_percent = int(pinch_value * 100)
+
+                # r = int(255 * pinch_value)
+                # g = int(255 * (1 - pinch_value))
+
+                # cv2.line(frame, (x1, y1), (x2, y2), (0, g, r), 4)
+                # cv2.putText(frame, f"Pinch: {pinch_percent}%", (20, 80),
+                #             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+
                 '''
                 # Displays landmark numbers
                 for i, lm in enumerate(hand_landmarks.landmark):
@@ -227,12 +273,6 @@ def main():
                 last = smoother.current
                 label = classify_gesture(hand_landmarks.landmark, last_label=last)
                 smoother.update(label)
-
-                if smoother.current == "Pinch":
-                    val = pinch_strength(hand_landmarks.landmark, prev=pinch_val, ema_alpha=0.35)
-                    pinch_val = val
-                    cv2.putText(frame, f"Pinch: {int(round(val))}", (20,80),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,200,255), 2, cv2.LINE_AA)
         else:
             smoother.update("Other")
 
@@ -242,7 +282,7 @@ def main():
                 cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 220, 0), 2, cv2.LINE_AA)
 
         cv2.putText(
-            frame, "[q]=quit  [m]=mirror", (20, frame.shape[0]-15),
+            frame, "[q]=quit  [m]=mirror  [p]=toggle pinch", (20, frame.shape[0]-15),
             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1, cv2.LINE_AA)
 
         cv2.imshow("GestureX", frame)
@@ -251,6 +291,8 @@ def main():
             break
         elif key == ord('m'):
             mirror = not mirror
+        elif key == ord('p'):
+            pinch = not pinch
 
     cap.release()
     cv2.destroyAllWindows()
