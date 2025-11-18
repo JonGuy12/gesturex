@@ -12,11 +12,13 @@
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
-import math
 from collections import deque, Counter
 import cv2
+import json
+import math
 import mediapipe as mp
 import numpy as np
+from pathlib import Path
 
 def _lm_np(lm_pt):
     return np.array([lm_pt.x, lm_pt.y, lm_pt.z], dtype=np.float32)
@@ -125,7 +127,7 @@ def classify_gesture(lm, last_label=None):
         return "WOAH!"
     if up["index"] and up["middle"] and up["ring"] and up["pinky"] and (not folded["thumb"]):
        return "Open Palm"
-    if folded["index"] and folded["middle"] and folded["ring"] and folded["pinky"] and (not up["thumb"]):
+    if folded["index"] and folded["middle"] and folded["ring"] and folded["pinky"] and folded["thumb"]:
       return "Closed Fist"
     return "Other"
 
@@ -165,6 +167,43 @@ class StablePrinter:
 
         return self.current
 
+CONFIG_PATH = Path(__file__).with_name("profiles.json")
+
+def load_profiles():
+    if not CONFIG_PATH.exists():
+        return {
+            "current_profile": "Default",
+            "profiles": {
+                "Default": {
+                    "description": "Default empty profile",
+                    "gestures": {}
+                }
+            }
+        }
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+    
+def save_profiles(cfg):
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+def get_current_profile(cfg):
+    name = cfg.get("current_profile")
+    return name, cfg.get("profiles", {}).get(name, {})
+
+def set_current_profile(cfg, name):
+    if name in cfg.get("profiles", {}):
+        cfg["current_profile"] = name
+        save_profiles(cfg)
+        print(f"[Profile] Switched to: {name}")
+    else:
+        print(f"[Profile] No such profile: {name}")
+
+def get_action_for_gesture(cfg, gesture_label):
+    prof_name, prof = get_current_profile(cfg)
+    gestures = prof.get("gestures", {})
+    return gestures.get(gesture_label)
+
 def main():
     mp_hands = mp.solutions.hands
     mp_drawing = mp.solutions.drawing_utils
@@ -184,6 +223,10 @@ def main():
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    cfg = load_profiles()
+    current_profile_name, _ = get_current_profile(cfg)
+    print(f"[Profile] Active profile: {current_profile_name}")
 
     smoother = StablePrinter(window=9, min_agree=6, allow_other_after=12)
     mirror = True
@@ -238,30 +281,10 @@ def main():
 
                     cv2.putText(frame, f"Open (plane): {open_pct}%", (20, 110),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
-                
-
-                # thumb_tip = hand_landmarks.landmark[4]
-                # index_tip = hand_landmarks.landmark[8]
-
-                # h, w, _ = frame.shape
-                # x1, y1 = int(thumb_tip.x * w), int(thumb_tip.y * h)
-                # x2, y2 = int(index_tip.x * w), int(index_tip.y * h)
-                # distance = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
-
-                # min_d, max_d = 20, 350
-                # pinch_value = (distance - min_d) / (max_d - min_d)
-                # pinch_value = max(0, min(1, pinch_value))
-                # pinch_percent = int(pinch_value * 100)
-
-                # r = int(255 * pinch_value)
-                # g = int(255 * (1 - pinch_value))
-
-                # cv2.line(frame, (x1, y1), (x2, y2), (0, g, r), 4)
-                # cv2.putText(frame, f"Pinch: {pinch_percent}%", (20, 80),
-                #             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
                 '''
                 # Displays landmark numbers
+
                 for i, lm in enumerate(hand_landmarks.landmark):
                     h, w, _ = frame.shape
                     cx, cy = int(lm.x * w), int(lm.y * h)
@@ -273,6 +296,12 @@ def main():
                 last = smoother.current
                 label = classify_gesture(hand_landmarks.landmark, last_label=last)
                 smoother.update(label)
+
+                stable_label = smoother.current
+                if stable_label:
+                    action = get_action_for_gesture(cfg, stable_label)
+                    if action:
+                        print(f"[Action] {stable_label} -> {action}")
         else:
             smoother.update("Other")
 
@@ -282,7 +311,7 @@ def main():
                 cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 220, 0), 2, cv2.LINE_AA)
 
         cv2.putText(
-            frame, "[q]=quit  [m]=mirror  [p]=toggle pinch", (20, frame.shape[0]-15),
+            frame, "[q]=quit  [m]=mirror  [p]=toggle pinch  [1/2]=swap profiles", (20, frame.shape[0]-15),
             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1, cv2.LINE_AA)
 
         cv2.imshow("GestureX", frame)
@@ -293,6 +322,10 @@ def main():
             mirror = not mirror
         elif key == ord('p'):
             pinch = not pinch
+        elif key == ord('1'):
+            set_current_profile(cfg, "Default")
+        elif key == ord('2'):
+            set_current_profile(cfg, "YouTube")
 
     cap.release()
     cv2.destroyAllWindows()

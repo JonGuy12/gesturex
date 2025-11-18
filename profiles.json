@@ -1,0 +1,47 @@
+{
+  "current_profile": "Default",
+  "profiles": {
+    "Default": {
+      "description": "Basic demo profile",
+      "gestures": {
+        "Open Palm": {
+          "type": "key",
+          "value": "space"
+        },
+        "Closed Fist": {
+          "type": "key",
+          "value": "esc"
+        },
+        "Point (Index)": {
+          "type": "key",
+          "value": "right"
+        },
+        "Thumbs Up/Side": {
+          "type": "key",
+          "value": "up"
+        }
+      }
+    },
+    "YouTube": {
+      "description": "Control Youtube playback",
+      "gestures": {
+        "Open Palm": {
+          "type": "key",
+          "value": "m"
+        },
+        "Closed Fist": {
+          "type": "key",
+          "value": "space"
+        },
+        "Point (Index)": {
+          "type": "key",
+          "value": "right"
+        },
+        "Thumbs Up/Side": {
+          "type": "key",
+          "value": "left"
+        }
+      }
+    }
+  }
+}
