@@ -25,10 +25,6 @@
     "YouTube": {
       "description": "Control Youtube playback",
       "gestures": {
-        "Open Palm": {
-          "type": "key",
-          "value": "m"
-        },
         "Closed Fist": {
           "type": "key",
           "value": "space"
@@ -40,6 +36,10 @@
         "Thumbs Up/Side": {
           "type": "key",
           "value": "left"
+        },
+        "Open Palm": {
+          "type": "key",
+          "value": "up"
         }
       }
     }

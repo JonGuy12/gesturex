@@ -204,6 +204,47 @@ def get_action_for_gesture(cfg, gesture_label):
     gestures = prof.get("gestures", {})
     return gestures.get(gesture_label)
 
+def draw_profile_mapping_on_frame(frame, cfg):
+    """
+    Draws the current profile's gesture -> key mapping on the frame.
+    """
+    prof_name, prof = get_current_profile(cfg)
+    gestures = prof.get("gestures", {})
+
+    lines = [f"Profile: {prof_name}"]
+    for gesture, action in gestures.items():
+        val = action.get("value", "")
+        lines.append(f"{gesture} -> {val}")
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.55
+    thickness = 1
+
+    line_height = 22
+    padding = 10
+
+    block_height = padding * 2 + line_height * len(lines)
+    block_width = 0
+
+    for line in lines:
+        (tw, th), _ = cv2.getTextSize(line, font, font_scale, thickness)
+        block_width = max(block_width, tw + padding * 2)
+    
+    x0, y0 = 10, 60
+    x1, y1 = x0 + block_width, y0 + block_height
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x0, y0), (x1, y1), (30, 30, 30), -1)
+    alpha = 0.55
+    frame[:] = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+
+    y = y0 + padding + 5
+    for i, line in enumerate(lines):
+        color = (255, 255, 255) if i == 0 else (200, 200, 0)
+        cv2.putText(frame, line, (x0 + padding, y),
+                    font, font_scale, color, 1, cv2.LINE_AA)
+        y += line_height
+
 def main():
     mp_hands = mp.solutions.hands
     mp_drawing = mp.solutions.drawing_utils
@@ -228,11 +269,26 @@ def main():
     current_profile_name, _ = get_current_profile(cfg)
     print(f"[Profile] Active profile: {current_profile_name}")
 
+    if CONFIG_PATH.exists():
+        last_cfg_mtime = CONFIG_PATH.stat().st_mtime
+    else:
+        last_cfg_mtime = None
+    
     smoother = StablePrinter(window=9, min_agree=6, allow_other_after=12)
     mirror = True
     pinch = False
+    show_prof = False
 
     while True:
+        # Load most recent version of JSON file
+        if CONFIG_PATH.exists():
+            mtime = CONFIG_PATH.stat().st_mtime
+            if last_cfg_mtime is None or mtime > last_cfg_mtime:
+                cfg = load_profiles()
+                last_cfg_mtime = mtime
+                prof_name, _ = get_current_profile(cfg)
+                print(f"[Profile] Reloaded config. Active profile: {prof_name}")
+
         success, frame = cap.read()
         if not success:
             break
@@ -240,6 +296,9 @@ def main():
         if mirror:
             frame = cv2.flip(frame, 1)
 
+        if show_prof:
+            draw_profile_mapping_on_frame(frame, cfg)
+            
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         res = hands.process(rgb)
 
@@ -298,10 +357,10 @@ def main():
                 smoother.update(label)
 
                 stable_label = smoother.current
-                if stable_label:
-                    action = get_action_for_gesture(cfg, stable_label)
-                    if action:
-                        print(f"[Action] {stable_label} -> {action}")
+                # if stable_label:
+                #     action = get_action_for_gesture(cfg, stable_label)
+                #     if action:
+                #         print(f"[Action] {stable_label} -> {action}")
         else:
             smoother.update("Other")
 
@@ -322,6 +381,8 @@ def main():
             mirror = not mirror
         elif key == ord('p'):
             pinch = not pinch
+        elif key == ord('f'):
+            show_prof = not show_prof
         elif key == ord('1'):
             set_current_profile(cfg, "Default")
         elif key == ord('2'):
