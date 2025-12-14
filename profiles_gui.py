@@ -39,6 +39,7 @@ class ProfilesGUI(tk.Tk):
         }
 
         self.cfg = load_profiles()
+        self.key_entry_original = ""
 
         top_frame = tk.Frame(self)
         top_frame.pack(fill = "x", padx = 10, pady = 10)
@@ -85,7 +86,7 @@ class ProfilesGUI(tk.Tk):
 
         tk.Label(bottom_frame, text = "Type:").grid(row = 0, column = 2, sticky = "w", padx = 5, pady = 3)
         self.type_var = tk.StringVar(value = "key")
-        type_box = ttk.Combobox(bottom_frame, textvariable = self.type_var, values = ["key", "system"], width = 10, state = "readonly")
+        type_box = ttk.Combobox(bottom_frame, textvariable = self.type_var, values = ["key", "volume"], width = 10, state = "readonly")
         type_box.grid(row = 0, column = 3, sticky = "w", padx = 5, pady = 3)
 
         tk.Label(bottom_frame, text = "Move Up/Down:").grid(row = 1, column = 4, sticky = "w", padx = 5, pady = 3)
@@ -148,6 +149,8 @@ class ProfilesGUI(tk.Tk):
         self.type_var.set(values[1])
         self.key_entry.delete(0, tk.END)
         self.key_entry.insert(0, values[2])
+        
+        self.key_entry_original = values[2]
 
     def save_mapping(self):
         gesture = self.gesture_var.get().strip()
@@ -156,6 +159,20 @@ class ProfilesGUI(tk.Tk):
 
         if not gesture or not key_val:
             messagebox.showerror("Error", "Gesture and key value cannot be empty.")
+            self.key_entry.delete(0, tk.END)
+            self.key_entry.insert(0, self.key_entry_original)
+            return
+        
+        if gesture == "Pinch":
+            messagebox.showerror("Error", "Cannot alter pinch gesture.")
+            self.key_entry.delete(0, tk.END)
+            self.key_entry.insert(0, self.key_entry_original)
+            return
+        
+        if a_type == "volume" and gesture != "Pinch":
+            messagebox.showerror("Error", "Cannot use volume type with this gesture.")
+            self.key_entry.delete(0, tk.END)
+            self.key_entry.insert(0, self.key_entry_original)
             return
         
         if a_type == "key":
@@ -165,6 +182,8 @@ class ProfilesGUI(tk.Tk):
                                      f"'{key_val}' is not a supported keyboard key.\n\n"
                                      f"Examples: space, esc, left, right, a-z, 0-9"
                                      )
+                self.key_entry.delete(0, tk.END)
+                self.key_entry.insert(0, self.key_entry_original)
                 return
 
         profs = self.cfg.setdefault("profiles", {})
@@ -174,15 +193,19 @@ class ProfilesGUI(tk.Tk):
         gestures[gesture] = {"type": a_type, "value": key_val}
         save_profiles(self.cfg)
         self.refresh_tree()
+        self.key_entry_original = key_val
 
     def delete_mapping(self):
         sel = self.tree.selection()
         if not sel:
             messagebox.showerror("Error", "No gesture selected.")
             return
-        
-        gesture = sel[0]
 
+        gesture = sel[0]
+        if gesture == "Pinch":
+            messagebox.showerror("Error", "Cannot delete pinch gesture.")
+            return
+        
         profs = self.cfg.get("profiles", {})
         prof = profs.get(self.current_profile_name(), {})
         gestures = prof.get("gestures", {})
@@ -221,7 +244,7 @@ class ProfilesGUI(tk.Tk):
     
     def save_order_from_tree(self):
         profs = self.cfg.get("profiles", {})
-        prof = profs.get(self.current_profile_name, {})
+        prof = profs.get(self.current_profile_name(), {})
         gestures_dict = prof.get("gestures", {})
 
         new_gestures = {}

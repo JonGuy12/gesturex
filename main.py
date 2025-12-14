@@ -7,7 +7,7 @@
 #   python -m venv venv
 #   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 #   venv\Scripts\activate
-#   pip install opencv-python mediapipe
+#   pip install opencv-python mediapipe pycaw comtypes
 
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
@@ -19,6 +19,13 @@ import math
 import mediapipe as mp
 import numpy as np
 from pathlib import Path
+from ctypes import POINTER, cast
+from comtypes import CLSCTX_ALL
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+
+def get_volume_interface():
+    device = AudioUtilities.GetSpeakers()
+    return device.EndpointVolume
 
 def _lm_np(lm_pt):
     return np.array([lm_pt.x, lm_pt.y, lm_pt.z], dtype=np.float32)
@@ -60,17 +67,6 @@ def _angle(a, b, c):
 
 def _dist(a, b):
     return math.hypot(a.x - b.x, a.y - b.y)
-
-def is_pinch(lm, last_label=None):
-        ti = _dist(lm[4], lm[8])
-        pw = _dist(lm[5], lm[17])
-
-        ENTER, EXIT = 0.14, 0.22
-
-        if last_label == "Pinch":
-            return ti <= EXIT * pw
-        else:
-            return ti <= ENTER * pw
 
 def finger_states_angle(lm):
     """
@@ -279,6 +275,20 @@ def main():
     pinch = False
     show_prof = False
 
+    try:
+        volume = get_volume_interface()
+        vol_min, vol_max, _ = volume.GetVolumeRange()
+        last_volume_pct = None
+        volume_ok = True
+        print("[Volume] OK")
+    except Exception as e:
+        print("[Volume] Disabled:", e)
+        volume_ok = False
+        volume = None
+        vol_min = vol_max = 0.0
+        last_volume_pct = None
+
+
     while True:
         # Load most recent version of JSON file
         if CONFIG_PATH.exists():
@@ -340,6 +350,12 @@ def main():
 
                     cv2.putText(frame, f"Open (plane): {open_pct}%", (20, 110),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
+
+                    # Alter volume
+                    if last_volume_pct is None or abs(open_pct - last_volume_pct) >= 3:
+                        vol_db = vol_min + (open_pct / 100.0) * (vol_max - vol_min)
+                        volume.SetMasterVolumeLevel(vol_db, None)
+                        last_volume_pct = open_pct
 
                 '''
                 # Displays landmark numbers

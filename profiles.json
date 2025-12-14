@@ -19,6 +19,10 @@
         "Thumbs Up/Side": {
           "type": "key",
           "value": "up"
+        },
+        "Pinch": {
+          "type": "volume",
+          "value": "{}"
         }
       }
     },
@@ -40,6 +44,10 @@
         "Open Palm": {
           "type": "key",
           "value": "up"
+        },
+        "Pinch": {
+          "type": "volume",
+          "value": "{}"
         }
       }
     }
