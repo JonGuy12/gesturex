@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 
 CONFIG_PATH = Path(__file__).with_name("profiles.json")
 
@@ -23,7 +23,6 @@ def load_profiles():
 def save_profiles(cfg):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent = 2)
-
 
 class ProfilesGUI(tk.Tk):
     def __init__(self):
@@ -59,6 +58,8 @@ class ProfilesGUI(tk.Tk):
         self.profile_menu.pack(side = "left", padx = 5)
 
         tk.Button(top_frame, text = "Set as Current", command = self.set_as_current).pack(side = "left", padx = 5)
+        tk.Button(top_frame, text="New Profile", command=self.create_new_profile).pack(side="left", padx=5)
+        tk.Button(top_frame, text="Delete Profile", command=self.delete_profile).pack(side="left", padx=5)
 
         mid_frame = tk.Frame(self)
         mid_frame.pack(fill = "both", expand = True, padx = 10, pady = 5)
@@ -257,6 +258,64 @@ class ProfilesGUI(tk.Tk):
         
         prof["gestures"] = new_gestures
         save_profiles(self.cfg)
+
+    def _rebuild_profile_menu(self):
+        menu = self.profile_menu["menu"]
+        menu.delete(0, "end")
+        profiles = list(self.cfg.get("profiles", {}).keys())
+        for name in profiles:
+            menu.add_command(label=name, command=lambda n=name: self.profile_var.set(n))
+
+    def create_new_profile(self):
+        name = tk.simpledialog.askstring("New Profile", "Enter a new profile name:")
+        if not name:
+            return
+        name = name.strip()
+        if not name:
+            return
+
+        profs = self.cfg.setdefault("profiles", {})
+        if name in profs:
+            messagebox.showerror("Error", f"Profile '{name}' already exists.")
+            return
+
+        profs[name] = {"description": "", "gestures": {}}
+        self.cfg["current_profile"] = name
+
+        save_profiles(self.cfg)
+
+        self._rebuild_profile_menu()
+        self.profile_var.set(name)
+        self.refresh_tree()
+        messagebox.showinfo("Profile", f"Created new profile: {name}")
+
+    def delete_profile(self):
+        name = self.current_profile_name()
+        profs = self.cfg.get("profiles", {})
+
+        if name == "Default":
+            messagebox.showerror("Error", "The Default profile cannot be deleted.")
+            return
+
+        if name not in profs:
+            messagebox.showerror("Error", f"Profile '{name}' not found.")
+            return
+
+        if not messagebox.askyesno("Delete Profile", f"Delete profile '{name}'?\n\nThis action cannot be undone."):
+            return
+
+        del profs[name]
+
+        self.cfg["current_profile"] = "Default"
+        self.profile_var.set("Default")
+
+        save_profiles(self.cfg)
+
+        self._rebuild_profile_menu()
+        self.refresh_tree()
+
+        messagebox.showinfo("Profile Deleted", f"Profile '{name}' was deleted.\nSwitched to Default.")
+
 
 if __name__ == "__main__":
     app = ProfilesGUI()

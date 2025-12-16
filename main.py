@@ -338,6 +338,8 @@ def main():
                     val = (ratio - CLOSE) / (FAR - CLOSE)
                     val = 0.0 if val < 0 else 1.0 if val > 1 else val
                     open_pct = int(round(val * 100))
+                    if open_pct <= 10:
+                        open_pct = 0
 
                     h, w, _ = frame.shape
                     tt = hand_landmarks.landmark[4]; it = hand_landmarks.landmark[8]
@@ -348,7 +350,7 @@ def main():
                     g = int(255 * (1 - val))
                     cv2.line(frame, (x1, y1), (x2, y2), (0, g, r), 4)
 
-                    cv2.putText(frame, f"Open (plane): {open_pct}%", (20, 110),
+                    cv2.putText(frame, f"Pinch: {open_pct}%", (20, 110),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
 
                     # Alter volume
