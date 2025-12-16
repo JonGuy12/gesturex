@@ -1,5 +1,5 @@
 {
-  "current_profile": "New",
+  "current_profile": "Default",
   "profiles": {
     "Default": {
       "description": "Basic demo profile",
@@ -60,15 +60,7 @@
         },
         "Closed Fist": {
           "type": "key",
-          "value": "b"
-        },
-        "Point (Index)": {
-          "type": "key",
-          "value": "c"
-        },
-        "Thumbs Up/Side": {
-          "type": "key",
-          "value": "d"
+          "value": "2"
         }
       }
     }

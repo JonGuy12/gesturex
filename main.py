@@ -1,8 +1,3 @@
-# === GestureX: MediaPipe Hands + Angle-based gesture detection with smoothing ===
-# Control Keys:
-#   q  -> quit
-#   m  -> toggle mirror on/off
-#
 # In terminal:
 #   python -m venv venv
 #   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -388,7 +383,7 @@ def main():
                 cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 220, 0), 2, cv2.LINE_AA)
 
         cv2.putText(
-            frame, "[q]=quit  [m]=mirror  [p]=toggle pinch  [1/2]=swap profiles", (20, frame.shape[0]-15),
+            frame, "[q]=quit  [m]=mirror  [p]=toggle pinch  [f]=show profile", (20, frame.shape[0]-15),
             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1, cv2.LINE_AA)
 
         cv2.imshow("GestureX", frame)
@@ -401,10 +396,6 @@ def main():
             pinch = not pinch
         elif key == ord('f'):
             show_prof = not show_prof
-        elif key == ord('1'):
-            set_current_profile(cfg, "Default")
-        elif key == ord('2'):
-            set_current_profile(cfg, "YouTube")
 
     cap.release()
     cv2.destroyAllWindows()
